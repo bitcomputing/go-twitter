@@ -17,6 +17,10 @@ type TweetLookupResponse struct {
 	RateLimit *RateLimit
 }
 
+type TweetLookupAsyncResponse struct {
+	ID string `json:"job_id"`
+}
+
 // UserMentionTimelineResponse contains the information from the user mention timeline callout
 type UserMentionTimelineResponse struct {
 	Raw       *TweetRaw
@@ -45,6 +49,10 @@ type UserTweetTimelineResponse struct {
 	Raw       *TweetRaw
 	Meta      *UserTimelineMeta `json:"meta"`
 	RateLimit *RateLimit
+}
+
+type UserTweetTimelineAsyncResponse struct {
+	ID string `jsonL:"job_id"`
 }
 
 // UserTimelineMeta contains the meta data from the timeline callout

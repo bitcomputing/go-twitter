@@ -17,6 +17,10 @@ type UserRetweetResponse struct {
 	RateLimit *RateLimit
 }
 
+type UserRetweetAsyncResponse struct {
+	ID string `json:"job_id"`
+}
+
 // DeleteUserRetweetResponse is the response with a user retweet
 type DeleteUserRetweetResponse struct {
 	Data      *RetweetData `json:"data"`

@@ -45,9 +45,9 @@ const (
 
 // Client is used to make twitter v2 API callouts.
 //
-// Authorizer is used to add auth to the request
+// # Authorizer is used to add auth to the request
 //
-// Client is the HTTP client to use for all requests
+// # Client is the HTTP client to use for all requests
 //
 // Host is the base URL to use like, https://api.twitter.com
 type Client struct {
@@ -82,6 +82,70 @@ func (c *Client) CreateTweet(ctx context.Context, tweet CreateTweetRequest) (*Cr
 	}
 	defer resp.Body.Close()
 
+	decoder := json.NewDecoder(resp.Body)
+
+	rl := rateFromHeader(resp.Header)
+
+	if resp.StatusCode != http.StatusCreated {
+		e := &ErrorResponse{}
+		if err := decoder.Decode(e); err != nil {
+			return nil, &HTTPError{
+				Status:     resp.Status,
+				StatusCode: resp.StatusCode,
+				URL:        resp.Request.URL.String(),
+				RateLimit:  rl,
+			}
+		}
+		e.StatusCode = resp.StatusCode
+		e.RateLimit = rl
+		return nil, e
+	}
+
+	raw := &CreateTweetResponse{}
+	if err := decoder.Decode(raw); err != nil {
+		return nil, &ResponseDecodeError{
+			Name:      "create tweet",
+			Err:       err,
+			RateLimit: rl,
+		}
+	}
+	raw.RateLimit = rl
+	return raw, nil
+}
+
+func (c *Client) CreateTweetAsync(ctx context.Context, tweet CreateTweetRequest) (*CreateTweetAsyncResponse, error) {
+	if err := tweet.validate(); err != nil {
+		return nil, err
+	}
+	body, err := json.Marshal(tweet)
+	if err != nil {
+		return nil, fmt.Errorf("create tweet marshal error %w", err)
+	}
+	ep := tweetCreateEndpoint.url(c.Host)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ep, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create tweet request: %w", err)
+	}
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Accept", "application/json")
+	c.Authorizer.Add(req)
+
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("create tweet response: %w", err)
+	}
+	defer resp.Body.Close()
+
+	raw := &CreateTweetAsyncResponse{}
+	if err := json.NewDecoder(resp.Body).Decode(raw); err != nil {
+		return nil, err
+	}
+
+	return raw, nil
+}
+
+func (c *Client) ParseCreateTweetAsyncResponse(resp *http.Response) (*CreateTweetResponse, error) {
 	decoder := json.NewDecoder(resp.Body)
 
 	rl := rateFromHeader(resp.Header)
@@ -196,6 +260,95 @@ func (c *Client) TweetLookup(ctx context.Context, ids []string, opts TweetLookup
 	}
 	defer resp.Body.Close()
 
+	decoder := json.NewDecoder(resp.Body)
+
+	rl := rateFromHeader(resp.Header)
+
+	if resp.StatusCode != http.StatusOK {
+		e := &ErrorResponse{}
+		if err := decoder.Decode(e); err != nil {
+			return nil, &HTTPError{
+				Status:     resp.Status,
+				StatusCode: resp.StatusCode,
+				URL:        resp.Request.URL.String(),
+				RateLimit:  rl,
+			}
+		}
+		e.StatusCode = resp.StatusCode
+		e.RateLimit = rl
+		return nil, e
+	}
+
+	raw := &TweetRaw{}
+	switch {
+	case len(ids) == 1:
+		single := &tweetraw{}
+		if err := decoder.Decode(single); err != nil {
+			return nil, &ResponseDecodeError{
+				Name:      "tweet lookup",
+				Err:       err,
+				RateLimit: rl,
+			}
+		}
+		raw.Tweets = make([]*TweetObj, 1)
+		raw.Tweets[0] = single.Tweet
+		raw.Includes = single.Includes
+		raw.Errors = single.Errors
+	default:
+		if err := decoder.Decode(raw); err != nil {
+			return nil, &ResponseDecodeError{
+				Name:      "tweet lookup ",
+				Err:       err,
+				RateLimit: rl,
+			}
+		}
+	}
+	return &TweetLookupResponse{
+		Raw:       raw,
+		RateLimit: rl,
+	}, nil
+}
+
+func (c *Client) TweetLookupAsync(ctx context.Context, ids []string, opts TweetLookupOpts) (*TweetLookupAsyncResponse, error) {
+	ep := tweetLookupEndpoint.url(c.Host)
+	switch {
+	case len(ids) == 0:
+		return nil, fmt.Errorf("tweet lookup: an id is required: %w", ErrParameter)
+	case len(ids) > tweetMaxIDs:
+		return nil, fmt.Errorf("tweet lookup: ids %d is greater than max %d: %w", len(ids), tweetMaxIDs, ErrParameter)
+	case len(ids) == 1:
+		ep += fmt.Sprintf("/%s", ids[0])
+	default:
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ep, nil)
+	if err != nil {
+		return nil, fmt.Errorf("tweet lookup request: %w", err)
+	}
+	req.Header.Add("Accept", "application/json")
+	c.Authorizer.Add(req)
+	opts.addQuery(req)
+	if len(ids) > 1 {
+		q := req.URL.Query()
+		q.Add("ids", strings.Join(ids, ","))
+		req.URL.RawQuery = q.Encode()
+	}
+
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("tweet lookup response: %w", err)
+	}
+	defer resp.Body.Close()
+
+	raw := &TweetLookupAsyncResponse{}
+	if err := json.NewDecoder(resp.Body).Decode(raw); err != nil {
+		return nil, err
+	}
+
+	return raw, nil
+}
+
+func (c *Client) ParseTweetLookupAsyncResponse(ids []string, resp *http.Response) (*TweetLookupResponse, error) {
 	decoder := json.NewDecoder(resp.Body)
 
 	rl := rateFromHeader(resp.Header)
@@ -554,6 +707,88 @@ func (c *Client) TweetRecentSearch(ctx context.Context, query string, opts Tweet
 	}
 	defer resp.Body.Close()
 
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("tweet recent search response read: %w", err)
+	}
+
+	rl := rateFromHeader(resp.Header)
+
+	if resp.StatusCode != http.StatusOK {
+		e := &ErrorResponse{}
+		if err := json.Unmarshal(respBytes, e); err != nil {
+			return nil, &HTTPError{
+				Status:     resp.Status,
+				StatusCode: resp.StatusCode,
+				URL:        resp.Request.URL.String(),
+				RateLimit:  rl,
+			}
+		}
+		e.StatusCode = resp.StatusCode
+		e.RateLimit = rl
+		return nil, e
+	}
+
+	recentSearch := &TweetRecentSearchResponse{
+		Raw:       &TweetRaw{},
+		Meta:      &TweetRecentSearchMeta{},
+		RateLimit: rl,
+	}
+
+	if err := json.Unmarshal(respBytes, recentSearch.Raw); err != nil {
+		return nil, &ResponseDecodeError{
+			Name:      "tweet recent search",
+			Err:       err,
+			RateLimit: rl,
+		}
+	}
+
+	if err := json.Unmarshal(respBytes, recentSearch); err != nil {
+		return nil, &ResponseDecodeError{
+			Name:      "tweet recent search",
+			Err:       err,
+			RateLimit: rl,
+		}
+	}
+
+	return recentSearch, nil
+}
+
+func (c *Client) TweetRecentSearchAsync(ctx context.Context, query string, opts TweetRecentSearchOpts) (*TweetRecentSearchAsyncResponse, error) {
+	switch {
+	case len(query) == 0:
+		return nil, fmt.Errorf("tweet recent search: a query is required: %w", ErrParameter)
+	case len(query) > tweetRecentSearchQueryLength:
+		return nil, fmt.Errorf("tweet recent search: the query over the length (%d): %w", tweetRecentSearchQueryLength, ErrParameter)
+	default:
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tweetRecentSearchEndpoint.url(c.Host), nil)
+	if err != nil {
+		return nil, fmt.Errorf("tweet recent search request: %w", err)
+	}
+	req.Header.Add("Accept", "application/json")
+	c.Authorizer.Add(req)
+	opts.addQuery(req)
+	q := req.URL.Query()
+	q.Add("query", query)
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("tweet recent search response: %w", err)
+	}
+	defer resp.Body.Close()
+
+	raw := &TweetRecentSearchAsyncResponse{}
+	if err := json.NewDecoder(resp.Body).Decode(raw); err != nil {
+		return nil, err
+	}
+
+	return raw, nil
+}
+
+func (c *Client) ParseTweetRecentSearchAsyncResponse(resp *http.Response) (*TweetRecentSearchResponse, error) {
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("tweet recent search response read: %w", err)
@@ -1237,6 +1472,78 @@ func (c *Client) UserFollows(ctx context.Context, userID, targetUserID string) (
 	return raw, nil
 }
 
+func (c *Client) UserFollowsAsync(ctx context.Context, userID, targetUserID string) (*UserFollowsAsyncResponse, error) {
+	switch {
+	case len(userID) == 0:
+		return nil, fmt.Errorf("user follows: user id is required %w", ErrParameter)
+	case len(targetUserID) == 0:
+		return nil, fmt.Errorf("user follows: target user id is required %w", ErrParameter)
+	default:
+	}
+
+	reqBody := struct {
+		TargetUserID string `json:"target_user_id"`
+	}{
+		TargetUserID: targetUserID,
+	}
+	enc, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("user follows: json marshal %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, userFollowingEndpoint.urlID(c.Host, userID), bytes.NewReader(enc))
+	if err != nil {
+		return nil, fmt.Errorf("user follows request: %w", err)
+	}
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Accept", "application/json")
+	c.Authorizer.Add(req)
+
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("user follows response: %w", err)
+	}
+	defer resp.Body.Close()
+
+	raw := &UserFollowsAsyncResponse{}
+	if err := json.NewDecoder(resp.Body).Decode(raw); err != nil {
+		return nil, err
+	}
+
+	return raw, nil
+}
+
+func (c *Client) ParseUserFollowsAsyncResponse(resp *http.Response) (*UserFollowsResponse, error) {
+	decoder := json.NewDecoder(resp.Body)
+
+	rl := rateFromHeader(resp.Header)
+
+	if resp.StatusCode != http.StatusOK {
+		e := &ErrorResponse{}
+		if err := decoder.Decode(e); err != nil {
+			return nil, &HTTPError{
+				Status:     resp.Status,
+				StatusCode: resp.StatusCode,
+				URL:        resp.Request.URL.String(),
+				RateLimit:  rl,
+			}
+		}
+		e.StatusCode = resp.StatusCode
+		e.RateLimit = rl
+		return nil, e
+	}
+
+	raw := &UserFollowsResponse{}
+	if err := decoder.Decode(raw); err != nil {
+		return nil, &ResponseDecodeError{
+			Name:      "user follows",
+			Err:       err,
+			RateLimit: rl,
+		}
+	}
+	raw.RateLimit = rl
+	return raw, nil
+}
+
 // DeleteUserFollows allows a user ID to unfollow another user
 func (c *Client) DeleteUserFollows(ctx context.Context, userID, targetUserID string) (*UserDeleteFollowsResponse, error) {
 	switch {
@@ -1386,6 +1693,86 @@ func (c *Client) UserTweetTimeline(ctx context.Context, userID string, opts User
 	}
 	defer resp.Body.Close()
 
+	rl := rateFromHeader(resp.Header)
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("user tweet timeline response read: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		e := &ErrorResponse{}
+		if err := json.Unmarshal(respBytes, e); err != nil {
+			return nil, &HTTPError{
+				Status:     resp.Status,
+				StatusCode: resp.StatusCode,
+				URL:        resp.Request.URL.String(),
+				RateLimit:  rl,
+			}
+		}
+		e.StatusCode = resp.StatusCode
+		e.RateLimit = rl
+		return nil, e
+	}
+
+	timeline := &UserTweetTimelineResponse{
+		Raw:  &TweetRaw{},
+		Meta: &UserTimelineMeta{},
+	}
+
+	if err := json.Unmarshal(respBytes, timeline.Raw); err != nil {
+		return nil, &ResponseDecodeError{
+			Name:      "user tweet timeline",
+			Err:       err,
+			RateLimit: rl,
+		}
+	}
+
+	if err := json.Unmarshal(respBytes, timeline); err != nil {
+		return nil, &ResponseDecodeError{
+			Name:      "user tweet timeline",
+			Err:       err,
+			RateLimit: rl,
+		}
+	}
+	timeline.RateLimit = rl
+	return timeline, nil
+}
+
+func (c *Client) UserTweetTimelineAsync(ctx context.Context, userID string, opts UserTweetTimelineOpts) (*UserTweetTimelineAsyncResponse, error) {
+	switch {
+	case len(userID) == 0:
+		return nil, fmt.Errorf("user tweet timeline: a query is required: %w", ErrParameter)
+	case opts.MaxResults == 0:
+	case opts.MaxResults < userTweetTimelineMinResults:
+		return nil, fmt.Errorf("user tweet timeline: max results [%d] have a min[%d] %w", opts.MaxResults, userTweetTimelineMinResults, ErrParameter)
+	case opts.MaxResults > userTweetTimelineMaxResults:
+		return nil, fmt.Errorf("user tweet timeline: max results [%d] have a max[%d] %w", opts.MaxResults, userTweetTimelineMaxResults, ErrParameter)
+	default:
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, userTweetTimelineEndpoint.urlID(c.Host, userID), nil)
+	if err != nil {
+		return nil, fmt.Errorf("user tweet timeline request: %w", err)
+	}
+	req.Header.Add("Accept", "application/json")
+	c.Authorizer.Add(req)
+	opts.addQuery(req)
+
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("user tweet timeline response: %w", err)
+	}
+	defer resp.Body.Close()
+
+	raw := &UserTweetTimelineAsyncResponse{}
+	if err := json.NewDecoder(resp.Body).Decode(raw); err != nil {
+		return nil, err
+	}
+
+	return raw, nil
+}
+
+func (c *Client) ParseUserTweetTimelineAsyncResponse(resp *http.Response) (*UserTweetTimelineResponse, error) {
 	rl := rateFromHeader(resp.Header)
 
 	respBytes, err := io.ReadAll(resp.Body)
@@ -1663,6 +2050,78 @@ func (c *Client) UserRetweet(ctx context.Context, userID, tweetID string) (*User
 	}
 	defer resp.Body.Close()
 
+	decoder := json.NewDecoder(resp.Body)
+
+	rl := rateFromHeader(resp.Header)
+
+	if resp.StatusCode != http.StatusOK {
+		e := &ErrorResponse{}
+		if err := decoder.Decode(e); err != nil {
+			return nil, &HTTPError{
+				Status:     resp.Status,
+				StatusCode: resp.StatusCode,
+				URL:        resp.Request.URL.String(),
+				RateLimit:  rl,
+			}
+		}
+		e.StatusCode = resp.StatusCode
+		e.RateLimit = rl
+		return nil, e
+	}
+
+	raw := &UserRetweetResponse{}
+	if err := decoder.Decode(raw); err != nil {
+		return nil, &ResponseDecodeError{
+			Name:      "user retweet",
+			Err:       err,
+			RateLimit: rl,
+		}
+	}
+	raw.RateLimit = rl
+	return raw, nil
+}
+
+func (c *Client) UserRetweetAsync(ctx context.Context, userID, tweetID string) (*UserRetweetAsyncResponse, error) {
+	switch {
+	case len(userID) == 0:
+		return nil, fmt.Errorf("user retweet: user id is required %w", ErrParameter)
+	case len(tweetID) == 0:
+		return nil, fmt.Errorf("user retweet: tweet id is required %w", ErrParameter)
+	default:
+	}
+
+	reqBody := struct {
+		TweetID string `json:"tweet_id"`
+	}{
+		TweetID: tweetID,
+	}
+	enc, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("user retweet: json marshal %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, userManageRetweetEndpoint.urlID(c.Host, userID), bytes.NewReader(enc))
+	if err != nil {
+		return nil, fmt.Errorf("user retweet request: %w", err)
+	}
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Accept", "application/json")
+	c.Authorizer.Add(req)
+
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("user retweet response: %w", err)
+	}
+	defer resp.Body.Close()
+
+	raw := &UserRetweetAsyncResponse{}
+	if err := json.NewDecoder(resp.Body).Decode(raw); err != nil {
+		return nil, err
+	}
+
+	return raw, nil
+}
+
+func (c *Client) ParseUserRetweetAsyncResponse(resp *http.Response) (*UserRetweetResponse, error) {
 	decoder := json.NewDecoder(resp.Body)
 
 	rl := rateFromHeader(resp.Header)
@@ -2297,6 +2756,78 @@ func (c *Client) UserLikes(ctx context.Context, userID, tweetID string) (*UserLi
 	}
 	defer resp.Body.Close()
 
+	decoder := json.NewDecoder(resp.Body)
+
+	rl := rateFromHeader(resp.Header)
+
+	if resp.StatusCode != http.StatusOK {
+		e := &ErrorResponse{}
+		if err := decoder.Decode(e); err != nil {
+			return nil, &HTTPError{
+				Status:     resp.Status,
+				StatusCode: resp.StatusCode,
+				URL:        resp.Request.URL.String(),
+				RateLimit:  rl,
+			}
+		}
+		e.StatusCode = resp.StatusCode
+		e.RateLimit = rl
+		return nil, e
+	}
+
+	raw := &UserLikesResponse{}
+	if err := decoder.Decode(raw); err != nil {
+		return nil, &ResponseDecodeError{
+			Name:      "user likes",
+			Err:       err,
+			RateLimit: rl,
+		}
+	}
+	raw.RateLimit = rl
+	return raw, nil
+}
+
+func (c *Client) UserLikesAsync(ctx context.Context, userID, tweetID string) (*UserLikesAsyncResponse, error) {
+	switch {
+	case len(userID) == 0:
+		return nil, fmt.Errorf("user likes: user id is required %w", ErrParameter)
+	case len(tweetID) == 0:
+		return nil, fmt.Errorf("user likes: tweet id is required %w", ErrParameter)
+	default:
+	}
+
+	reqBody := struct {
+		TweetID string `json:"tweet_id"`
+	}{
+		TweetID: tweetID,
+	}
+	enc, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("user likes: json marshal %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, userLikesEndpoint.urlID(c.Host, userID), bytes.NewReader(enc))
+	if err != nil {
+		return nil, fmt.Errorf("user likes request: %w", err)
+	}
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Accept", "application/json")
+	c.Authorizer.Add(req)
+
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("user likes response: %w", err)
+	}
+	defer resp.Body.Close()
+
+	raw := &UserLikesAsyncResponse{}
+	if err := json.NewDecoder(resp.Body).Decode(resp.Body); err != nil {
+		return nil, err
+	}
+
+	return raw, nil
+}
+
+func (c *Client) ParseUserLikesAsyncResponse(resp *http.Response) (*UserLikesResponse, error) {
 	decoder := json.NewDecoder(resp.Body)
 
 	rl := rateFromHeader(resp.Header)
