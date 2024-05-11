@@ -623,6 +623,95 @@ func (c *Client) UserNameLookup(ctx context.Context, usernames []string, opts Us
 	}, nil
 }
 
+func (c *Client) UserNameLookupAsync(ctx context.Context, usernames []string, opts UserLookupOpts) (*UserNameLookupAsyncResponse, error) {
+	ep := userNameLookupEndpoint.url(c.Host)
+	switch {
+	case len(usernames) == 0:
+		return nil, fmt.Errorf("username lookup: an username is required: %w", ErrParameter)
+	case len(usernames) > userMaxIDs:
+		return nil, fmt.Errorf("username lookup: usernames %d is greater than max %d: %w", len(usernames), userMaxNames, ErrParameter)
+	case len(usernames) == 1:
+		ep += fmt.Sprintf("/username/%s", usernames[0])
+	default:
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ep, nil)
+	if err != nil {
+		return nil, fmt.Errorf("username lookup request: %w", err)
+	}
+	req.Header.Add("Accept", "application/json")
+	c.Authorizer.Add(req)
+	opts.addQuery(req)
+	if len(usernames) > 1 {
+		q := req.URL.Query()
+		q.Add("usernames", strings.Join(usernames, ","))
+		req.URL.RawQuery = q.Encode()
+	}
+
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("username lookup response: %w", err)
+	}
+	defer resp.Body.Close()
+
+	raw := new(UserNameLookupAsyncResponse)
+	if err := json.NewDecoder(resp.Body).Decode(raw); err != nil {
+		return nil, err
+	}
+
+	return raw, nil
+}
+
+func (c *Client) ParseUserNameLookupAsyncResponse(usernames []string, resp *http.Response) (*UserLookupResponse, error) {
+	decoder := json.NewDecoder(resp.Body)
+
+	rl := rateFromHeader(resp.Header)
+
+	if resp.StatusCode != http.StatusOK {
+		e := &ErrorResponse{}
+		if err := decoder.Decode(e); err != nil {
+			return nil, &HTTPError{
+				Status:     resp.Status,
+				StatusCode: resp.StatusCode,
+				URL:        resp.Request.URL.String(),
+				RateLimit:  rl,
+			}
+		}
+		e.StatusCode = resp.StatusCode
+		e.RateLimit = rl
+		return nil, e
+	}
+
+	raw := &UserRaw{}
+	switch {
+	case len(usernames) == 1:
+		single := &userraw{}
+		if err := decoder.Decode(single); err != nil {
+			return nil, &ResponseDecodeError{
+				Name:      "username lookup",
+				Err:       err,
+				RateLimit: rl,
+			}
+		}
+		raw.Users = make([]*UserObj, 1)
+		raw.Users[0] = single.User
+		raw.Includes = single.Includes
+		raw.Errors = single.Errors
+	default:
+		if err := decoder.Decode(raw); err != nil {
+			return nil, &ResponseDecodeError{
+				Name:      "username lookup",
+				Err:       err,
+				RateLimit: rl,
+			}
+		}
+	}
+	return &UserLookupResponse{
+		Raw:       raw,
+		RateLimit: rl,
+	}, nil
+}
+
 // AuthUserLookup will return the authorized user lookup
 func (c *Client) AuthUserLookup(ctx context.Context, opts UserLookupOpts) (*UserLookupResponse, error) {
 	ep := userAuthLookupEndpoint.url(c.Host)

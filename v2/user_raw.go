@@ -6,6 +6,10 @@ type UserLookupResponse struct {
 	RateLimit *RateLimit
 }
 
+type UserNameLookupAsyncResponse struct {
+	ID string `json:"job_id"`
+}
+
 // UserFollowsResponse is the response from the follows API
 type UserFollowsResponse struct {
 	Data      *UserFollowsData `json:"data"`
