@@ -88,6 +88,10 @@ type TweetRecentSearchResponse struct {
 	RateLimit *RateLimit
 }
 
+type TweetRecentSearchAsyncResponse struct {
+	ID string `json:"job_id"`
+}
+
 // TweetRecentSearchMeta contains the recent search information
 type TweetRecentSearchMeta struct {
 	NewestID    string `json:"newest_id"`

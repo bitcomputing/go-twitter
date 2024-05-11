@@ -115,6 +115,7 @@ type TweetMetricsObj struct {
 	Replies           int `json:"reply_count"`
 	Retweets          int `json:"retweet_count"`
 	Quotes            int `json:"quote_count"`
+	Bookmarks         int `json:"bookmark_count"`
 }
 
 // TweetReferencedTweetObj is a Tweet this Tweet refers to

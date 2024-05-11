@@ -12,6 +12,10 @@ type UserLikesResponse struct {
 	RateLimit *RateLimit
 }
 
+type UserLikesAsyncResponse struct {
+	ID string `json:"job_id"`
+}
+
 // DeleteUserLikesResponse the response for the user unlike
 type DeleteUserLikesResponse struct {
 	Data      *UserLikesData `json:"data"`

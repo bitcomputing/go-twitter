@@ -94,6 +94,10 @@ type CreateTweetResponse struct {
 	RateLimit *RateLimit
 }
 
+type CreateTweetAsyncResponse struct {
+	ID string `json:"job_id"`
+}
+
 // DeleteTweetData is the indication of the deletion of tweet
 type DeleteTweetData struct {
 	Deleted bool `json:"deleted"`
