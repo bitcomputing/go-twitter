@@ -12,10 +12,6 @@ type UserFollowsResponse struct {
 	RateLimit *RateLimit
 }
 
-type UserFollowsAsyncResponse struct {
-	ID string `json:"job_id"`
-}
-
 // UserFollowsData is the data from the follows API
 type UserFollowsData struct {
 	Following     bool `json:"following"`
