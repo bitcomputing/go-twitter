@@ -1,9 +1,57 @@
 package twitter
 
+import (
+	"encoding/json"
+	"io"
+	"net/http"
+)
+
 // UserLookupResponse contains all of the information from an user lookup callout
 type UserLookupResponse struct {
 	Raw       *UserRaw
 	RateLimit *RateLimit
+}
+
+type UserLookupAsyncResponse struct {
+	ID string `json:"job_id"`
+}
+
+func (*UserLookupAsyncResponse) Build(statusCode int, headers http.Header, body io.Reader) (*UserLookupResponse, error) {
+	decoder := json.NewDecoder(body)
+
+	rl := rateFromHeader(headers)
+
+	if statusCode != http.StatusOK {
+		e := &ErrorResponse{}
+		if err := decoder.Decode(e); err != nil {
+			return nil, &HTTPError{
+				StatusCode: statusCode,
+				RateLimit:  rl,
+			}
+		}
+		e.StatusCode = statusCode
+		e.RateLimit = rl
+		return nil, e
+	}
+
+	single := &userraw{}
+	if err := decoder.Decode(single); err != nil {
+		return nil, &ResponseDecodeError{
+			Name:      "auth user lookup",
+			Err:       err,
+			RateLimit: rl,
+		}
+	}
+	raw := &UserRaw{}
+	raw.Users = make([]*UserObj, 1)
+	raw.Users[0] = single.User
+	raw.Includes = single.Includes
+	raw.Errors = single.Errors
+
+	return &UserLookupResponse{
+		Raw:       raw,
+		RateLimit: rl,
+	}, nil
 }
 
 // UserFollowsResponse is the response from the follows API

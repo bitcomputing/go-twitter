@@ -1,6 +1,11 @@
 package twitter
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+)
 
 // CreateTweetRequest is the details of a tweet to create
 type CreateTweetRequest struct {
@@ -92,6 +97,40 @@ type CreateTweetData struct {
 type CreateTweetResponse struct {
 	Tweet     *CreateTweetData `json:"data"`
 	RateLimit *RateLimit
+}
+
+type CreateTweetAsyncResponse struct {
+	ID string `json:"job_id"`
+}
+
+func (*CreateTweetAsyncResponse) Build(statusCode int, headers http.Header, body io.Reader) (*CreateTweetResponse, error) {
+	decoder := json.NewDecoder(body)
+
+	rl := rateFromHeader(headers)
+
+	if statusCode != http.StatusCreated {
+		e := &ErrorResponse{}
+		if err := decoder.Decode(e); err != nil {
+			return nil, &HTTPError{
+				StatusCode: statusCode,
+				RateLimit:  rl,
+			}
+		}
+		e.StatusCode = statusCode
+		e.RateLimit = rl
+		return nil, e
+	}
+
+	raw := &CreateTweetResponse{}
+	if err := decoder.Decode(raw); err != nil {
+		return nil, &ResponseDecodeError{
+			Name:      "create tweet",
+			Err:       err,
+			RateLimit: rl,
+		}
+	}
+	raw.RateLimit = rl
+	return raw, nil
 }
 
 // DeleteTweetData is the indication of the deletion of tweet
