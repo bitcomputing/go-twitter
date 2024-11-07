@@ -1,7 +1,9 @@
 package twitter
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -268,4 +270,83 @@ type TweetSearchStreamRuleSummary struct {
 	NotCreated int `json:"not_created"`
 	Deleted    int `json:"deleted"`
 	NotDeleted int `json:"not_deleted"`
+}
+
+type TweetSearchApifyAsyncRequest struct {
+	StartURLs          []string `json:"startUrls,omitempty"`          // Twitter (X) URLs. Paste the URLs and get the results immediately. Tweet, Profile, Search or List URLs are supported.
+	SearchTerms        []string `json:"searchTerms,omitempty"`        // Search terms you want to search from Twitter (X). You can refer to https://github.com/igorbrigadir/twitter-advanced-search.
+	TwitterHandles     []string `json:"twitterHandles,omitempty"`     // Twitter handles that you want to search on Twitter (X)
+	ConversationIDs    []string `json:"conversationIds,omitempty"`    // Conversation IDs that you want to search on Twitter (X)
+	MaxItems           int      `json:"maxItems,omitempty"`           // Maximum number of items that you want as output.
+	Sort               string   `json:"sort,omitempty"`               // Sorts search results by the given option. Only works with search terms and search URLs. Value options: "Top", "Latest", "Media"
+	TweetLanguage      string   `json:"tweetLanguage,omitempty"`      // Restricts tweets to the given language, given by an ISO 639-1 code.
+	OnlyVerifiedUsers  bool     `json:"onlyVerifiedUsers,omitempty"`  // If selected, only returns tweets by users who are verified.
+	OnlyTwitterBlue    bool     `json:"onlyTwitterBlue,omitempty"`    // If selected, only returns tweets by users who are Twitter Blue subscribers.
+	OnlyImage          bool     `json:"onlyImage,omitempty"`          // If selected, only returns tweets that contain images.
+	OnlyVideo          bool     `json:"onlyVideo,omitempty"`          // If selected, only returns tweets that contain videos.
+	OnlyQuote          bool     `json:"onlyQuote,omitempty"`          // If selected, only returns tweets that are quotes.
+	Author             string   `json:"author,omitempty"`             // Returns tweets sent by the given user. It should be a Twitter (X) Handle.
+	InReplyTo          string   `json:"inReplyTo,omitempty"`          // Returns tweets that are replies to the given user. It should be a Twitter (X) Handle.
+	Mentioning         string   `json:"mentioning,omitempty"`         // Returns tweets mentioning the given user. It should be a Twitter (X) Handle.
+	GeotaggedNear      string   `json:"geotaggedNear,omitempty"`      // Returns tweets sent near the given location.
+	WithinRadius       string   `json:"withinRadius,omitempty"`       // Returns tweets sent within the given radius of the given location.
+	Geocode            string   `json:"geocode,omitempty"`            // Returns tweets sent by users located within a given radius of the given latitude/longitude.
+	PlaceObjectId      string   `json:"placeObjectId,omitempty"`      // Returns tweets tagged with the given place.
+	MinimumRetweets    int      `json:"minimumRetweets,omitempty"`    // Returns tweets with at least the given number of retweets.
+	MinimumFavorites   int      `json:"minimumFavorites,omitempty"`   // Returns tweets with at least the given number of favorites.
+	MinimumReplies     int      `json:"minimumReplies,omitempty"`     // Returns tweets with at least the given number of replies.
+	Start              string   `json:"start,omitempty"`              // Returns tweets sent after the given date.
+	End                string   `json:"end,omitempty"`                // Returns tweets sent before the given date.
+	IncludeSearchTerms bool     `json:"includeSearchTerms,omitempty"` // If selected, a field will be added to each tweets about the search term that was used to find it.
+	CustomMapFunction  string   `json:"customMapFunction,omitempty"`  // Function that takes each of the objects as argument and returns data that will be mapped by the function itself. This function is not intended for filtering, please don't use it for filtering purposes or you will get banned automatically.
+}
+
+type TweetSearchApifyAsyncResponse struct {
+	ID string `json:"job_id"`
+}
+
+type TweetSearchApifyResponse struct {
+	Type          string `json:"type"`
+	ID            string `json:"id"`
+	URL           string `json:"url"`
+	TwitterURL    string `json:"twitterUrl"`
+	Text          string `json:"text"`
+	RetweetCount  int    `json:"retweetCount"`
+	ReplyCount    int    `json:"replyCount"`
+	LikeCount     int    `json:"likeCount"`
+	QuoteCount    int    `json:"quoteCount"`
+	CreatedAt     string `json:"createdAt"`
+	Lang          string `json:"lang"`
+	QuoteID       string `json:"quoteId"`
+	BookmarkCount int    `json:"bookmarkCount"`
+	IsReply       bool   `json:"isReply"`
+	Source        string `json:"source"`
+	IsRetweet     bool   `json:"isRetweet"`
+	IsQuote       bool   `json:"isQuote"`
+	Author        struct {
+		Type           string `json:"type"`
+		UserName       string `json:"userName"`
+		URL            string `json:"url"`
+		TwitterURL     string `json:"twitterUrl"`
+		ID             string `json:"id"`
+		Name           string `json:"name"`
+		IsVerified     bool   `json:"isVerified"`
+		IsBlueVerified bool   `json:"isBlueVerified"`
+		ProfilePicture string `json:"profilePicture"`
+		CoverPicture   string `json:"coverPicture"`
+		Description    string `json:"description"`
+		Location       string `json:"location"`
+		Followers      int    `json:"followers"`
+		Following      int    `json:"following"`
+		Protected      bool   `json:"protected"`
+		Status         string `json:"status"`
+	}
+}
+
+func (*TweetSearchApifyAsyncResponse) Array(body io.Reader) ([]*TweetSearchApifyResponse, error) {
+	r := make([]*TweetSearchApifyResponse, 0)
+	if err := json.NewDecoder(body).Decode(&r); err != nil {
+		return nil, err
+	}
+	return r, nil
 }

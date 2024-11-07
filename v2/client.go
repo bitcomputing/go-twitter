@@ -45,9 +45,9 @@ const (
 
 // Client is used to make twitter v2 API callouts.
 //
-// Authorizer is used to add auth to the request
+// # Authorizer is used to add auth to the request
 //
-// Client is the HTTP client to use for all requests
+// # Client is the HTTP client to use for all requests
 //
 // Host is the base URL to use like, https://api.twitter.com
 type Client struct {
@@ -111,6 +111,43 @@ func (c *Client) CreateTweet(ctx context.Context, tweet CreateTweetRequest) (*Cr
 	}
 	raw.RateLimit = rl
 	return raw, nil
+}
+
+func (c *Client) CreateTweetAsync(ctx context.Context, tweet CreateTweetRequest) (*CreateTweetAsyncResponse, error) {
+	if err := tweet.validate(); err != nil {
+		return nil, err
+	}
+	body, err := json.Marshal(tweet)
+	if err != nil {
+		return nil, fmt.Errorf("create tweet marshal error %w", err)
+	}
+	ep := tweetCreateEndpoint.url(c.Host)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ep, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create tweet request: %w", err)
+	}
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Accept", "application/json")
+	c.Authorizer.Add(req)
+
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("create tweet response: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		buffer, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("create tweet response: %s", buffer)
+	}
+	r := new(CreateTweetAsyncResponse)
+	if err := json.NewDecoder(resp.Body).Decode(r); err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
 // DeleteTweet allow the user to delete a specific tweet
@@ -525,6 +562,36 @@ func (c *Client) AuthUserLookup(ctx context.Context, opts UserLookupOpts) (*User
 		Raw:       raw,
 		RateLimit: rl,
 	}, nil
+}
+
+func (c *Client) AuthUserLookupAsync(ctx context.Context, opts UserLookupOpts) (*UserLookupAsyncResponse, error) {
+	ep := userAuthLookupEndpoint.url(c.Host)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ep, nil)
+	if err != nil {
+		return nil, fmt.Errorf("auth user lookup request: %w", err)
+	}
+	req.Header.Add("Accept", "application/json")
+	c.Authorizer.Add(req)
+	opts.addQuery(req)
+
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("auth user lookup response: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		buffer, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("auth user lookup response: %s", buffer)
+	}
+	r := new(UserLookupAsyncResponse)
+	if err := json.NewDecoder(resp.Body).Decode(r); err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
 // TweetRecentSearch will return a recent search based of a query
@@ -978,6 +1045,40 @@ func (c *Client) TweetSearchStream(ctx context.Context, opts TweetSearchStreamOp
 	stream := StartTweetStream(resp.Body)
 	stream.RateLimit = rl
 	return stream, nil
+}
+
+func (c *Client) TweetSearchApifyAsync(ctx context.Context, request *TweetSearchApifyAsyncRequest) (*TweetSearchApifyAsyncResponse, error) {
+	requestBuffer := &bytes.Buffer{}
+	if err := json.NewEncoder(requestBuffer).Encode(request); err != nil {
+		return nil, fmt.Errorf("tweet search apify async request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tweetSearchApifyEndpoint.url(c.Host), requestBuffer)
+	if err != nil {
+		return nil, fmt.Errorf("tweet search stream request: %w", err)
+	}
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Content-Type", "application/json")
+	c.Authorizer.Add(req)
+
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("tweet apify search stream response: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		buffer, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("tweet apify search stream response: %s", buffer)
+	}
+	r := new(TweetSearchApifyAsyncResponse)
+	if err := json.NewDecoder(resp.Body).Decode(r); err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
 // TweetRecentCounts will return a recent tweet counts based of a query
