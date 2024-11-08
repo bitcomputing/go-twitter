@@ -8,8 +8,10 @@ import (
 
 // UserLookupResponse contains all of the information from an user lookup callout
 type UserLookupResponse struct {
-	Raw       *UserRaw
-	RateLimit *RateLimit
+	Raw                *UserRaw
+	RateLimit          *RateLimit
+	DailyAppRateLimit  *DailyAppRateLimit
+	DailyUserRateLimit *DailyUserRateLimit
 }
 
 type UserLookupAsyncResponse struct {
@@ -20,26 +22,34 @@ func (*UserLookupAsyncResponse) Build(statusCode int, headers http.Header, body 
 	decoder := json.NewDecoder(body)
 
 	rl := rateFromHeader(headers)
+	darl := dailyAppRateFromHeader(headers)
+	durl := dailyUserRateFromHeader(headers)
 
 	if statusCode != http.StatusOK {
 		e := &ErrorResponse{}
 		if err := decoder.Decode(e); err != nil {
 			return nil, &HTTPError{
-				StatusCode: statusCode,
-				RateLimit:  rl,
+				StatusCode:         statusCode,
+				RateLimit:          rl,
+				DailyAppRateLimit:  darl,
+				DailyUserRateLimit: durl,
 			}
 		}
 		e.StatusCode = statusCode
 		e.RateLimit = rl
+		e.DailyAppRateLimit = darl
+		e.DailyUserRateLimit = durl
 		return nil, e
 	}
 
 	single := &userraw{}
 	if err := decoder.Decode(single); err != nil {
 		return nil, &ResponseDecodeError{
-			Name:      "auth user lookup",
-			Err:       err,
-			RateLimit: rl,
+			Name:               "auth user lookup",
+			Err:                err,
+			RateLimit:          rl,
+			DailyAppRateLimit:  darl,
+			DailyUserRateLimit: durl,
 		}
 	}
 	raw := &UserRaw{}
@@ -49,8 +59,10 @@ func (*UserLookupAsyncResponse) Build(statusCode int, headers http.Header, body 
 	raw.Errors = single.Errors
 
 	return &UserLookupResponse{
-		Raw:       raw,
-		RateLimit: rl,
+		Raw:                raw,
+		RateLimit:          rl,
+		DailyAppRateLimit:  darl,
+		DailyUserRateLimit: durl,
 	}, nil
 }
 

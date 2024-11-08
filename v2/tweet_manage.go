@@ -95,8 +95,10 @@ type CreateTweetData struct {
 
 // CreateTweetResponse is the response returned by the create tweet
 type CreateTweetResponse struct {
-	Tweet     *CreateTweetData `json:"data"`
-	RateLimit *RateLimit
+	Tweet              *CreateTweetData `json:"data"`
+	RateLimit          *RateLimit
+	DailyAppRateLimit  *DailyAppRateLimit
+	DailyUserRateLimit *DailyUserRateLimit
 }
 
 type CreateTweetAsyncResponse struct {
@@ -107,29 +109,39 @@ func (*CreateTweetAsyncResponse) Build(statusCode int, headers http.Header, body
 	decoder := json.NewDecoder(body)
 
 	rl := rateFromHeader(headers)
+	darl := dailyAppRateFromHeader(headers)
+	durl := dailyUserRateFromHeader(headers)
 
 	if statusCode != http.StatusCreated {
 		e := &ErrorResponse{}
 		if err := decoder.Decode(e); err != nil {
 			return nil, &HTTPError{
-				StatusCode: statusCode,
-				RateLimit:  rl,
+				StatusCode:         statusCode,
+				RateLimit:          rl,
+				DailyAppRateLimit:  darl,
+				DailyUserRateLimit: durl,
 			}
 		}
 		e.StatusCode = statusCode
 		e.RateLimit = rl
+		e.DailyAppRateLimit = darl
+		e.DailyUserRateLimit = durl
 		return nil, e
 	}
 
 	raw := &CreateTweetResponse{}
 	if err := decoder.Decode(raw); err != nil {
 		return nil, &ResponseDecodeError{
-			Name:      "create tweet",
-			Err:       err,
-			RateLimit: rl,
+			Name:               "create tweet",
+			Err:                err,
+			RateLimit:          rl,
+			DailyAppRateLimit:  darl,
+			DailyUserRateLimit: durl,
 		}
 	}
 	raw.RateLimit = rl
+	raw.DailyAppRateLimit = darl
+	raw.DailyUserRateLimit = durl
 	return raw, nil
 }
 
