@@ -4,9 +4,11 @@ import "fmt"
 
 // ResponseDecodeError is an error when a response has a decoding error, JSON.
 type ResponseDecodeError struct {
-	Name      string
-	Err       error
-	RateLimit *RateLimit
+	Name               string
+	Err                error
+	RateLimit          *RateLimit
+	DailyAppRateLimit  *DailyAppRateLimit
+	DailyUserRateLimit *DailyUserRateLimit
 }
 
 func (r *ResponseDecodeError) Error() string {
@@ -20,10 +22,12 @@ func (r *ResponseDecodeError) Unwrap() error {
 
 // HTTPError is a response error where the body is not JSON, but XML.  This commonly seen in 404 errors.
 type HTTPError struct {
-	Status     string
-	StatusCode int
-	URL        string
-	RateLimit  *RateLimit
+	Status             string
+	StatusCode         int
+	URL                string
+	RateLimit          *RateLimit
+	DailyAppRateLimit  *DailyAppRateLimit
+	DailyUserRateLimit *DailyUserRateLimit
 }
 
 func (h HTTPError) Error() string {
@@ -48,12 +52,14 @@ type Error struct {
 
 // ErrorResponse is returned by a non-success callout
 type ErrorResponse struct {
-	StatusCode int
-	Errors     []Error    `json:"errors"`
-	Title      string     `json:"title"`
-	Detail     string     `json:"detail"`
-	Type       string     `json:"type"`
-	RateLimit  *RateLimit `json:"-"`
+	StatusCode         int
+	Errors             []Error             `json:"errors"`
+	Title              string              `json:"title"`
+	Detail             string              `json:"detail"`
+	Type               string              `json:"type"`
+	RateLimit          *RateLimit          `json:"-"`
+	DailyAppRateLimit  *DailyAppRateLimit  `json:"-"`
+	DailyUserRateLimit *DailyUserRateLimit `json:"-"`
 }
 
 func (e ErrorResponse) Error() string {

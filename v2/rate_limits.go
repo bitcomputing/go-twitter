@@ -8,9 +8,15 @@ import (
 )
 
 const (
-	rateLimit     = "x-rate-limit-limit"
-	rateRemaining = "x-rate-limit-remaining"
-	rateReset     = "x-rate-limit-reset"
+	rateLimit              = "x-rate-limit-limit"
+	rateRemaining          = "x-rate-limit-remaining"
+	rateReset              = "x-rate-limit-reset"
+	dailyAppRateLimit      = "X-App-Limit-24hour-Limit"
+	dailyAppRateRemaining  = "X-App-Limit-24hour-Remaining"
+	dailyAppRateReset      = "X-App-Limit-24hour-Reset"
+	dailyUserRateLimit     = "X-User-Limit-24hour-Limit"
+	dailyUserRateRemaining = "X-User-Limit-24hour-Remaining"
+	dailyUserRateReset     = "X-User-Limit-24hour-Reset"
 )
 
 // Epoch is the UNIX seconds from 1/1/1970
@@ -63,4 +69,56 @@ func RateLimitFromError(err error) (*RateLimit, bool) {
 	default:
 	}
 	return nil, false
+}
+
+type DailyAppRateLimit struct {
+	Limit     int
+	Remaining int
+	Reset     Epoch
+}
+
+func dailyAppRateFromHeader(header http.Header) *DailyAppRateLimit {
+	limit, err := strconv.Atoi(header.Get(dailyAppRateLimit))
+	if err != nil {
+		return nil
+	}
+	remaining, err := strconv.Atoi(header.Get(dailyAppRateRemaining))
+	if err != nil {
+		return nil
+	}
+	reset, err := strconv.Atoi(header.Get(dailyAppRateReset))
+	if err != nil {
+		return nil
+	}
+	return &DailyAppRateLimit{
+		Limit:     limit,
+		Remaining: remaining,
+		Reset:     Epoch(reset),
+	}
+}
+
+type DailyUserRateLimit struct {
+	Limit     int
+	Remaining int
+	Reset     Epoch
+}
+
+func dailyUserRateFromHeader(header http.Header) *DailyUserRateLimit {
+	limit, err := strconv.Atoi(header.Get(dailyUserRateLimit))
+	if err != nil {
+		return nil
+	}
+	remaining, err := strconv.Atoi(header.Get(dailyUserRateRemaining))
+	if err != nil {
+		return nil
+	}
+	reset, err := strconv.Atoi(header.Get(dailyUserRateReset))
+	if err != nil {
+		return nil
+	}
+	return &DailyUserRateLimit{
+		Limit:     limit,
+		Remaining: remaining,
+		Reset:     Epoch(reset),
+	}
 }
