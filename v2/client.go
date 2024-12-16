@@ -668,6 +668,39 @@ func (c *Client) TweetRecentSearch(ctx context.Context, query string, opts Tweet
 	return recentSearch, nil
 }
 
+func (c *Client) TweetRecentSearchAsync(ctx context.Context, query string, opts TweetRecentSearchOpts) (*TweetRecentSearchAsyncResponse, error) {
+	switch {
+	case len(query) == 0:
+		return nil, fmt.Errorf("tweet recent search: a query is required: %w", ErrParameter)
+	case len(query) > tweetRecentSearchQueryLength:
+		return nil, fmt.Errorf("tweet recent search: the query over the length (%d): %w", tweetRecentSearchQueryLength, ErrParameter)
+	default:
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tweetRecentSearchEndpoint.url(c.Host), nil)
+	if err != nil {
+		return nil, fmt.Errorf("tweet recent search request: %w", err)
+	}
+	req.Header.Add("Accept", "application/json")
+	c.Authorizer.Add(req)
+	opts.addQuery(req)
+	q := req.URL.Query()
+	q.Add("query", query)
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("tweet recent search response: %w", err)
+	}
+	defer resp.Body.Close()
+
+	r := new(TweetRecentSearchAsyncResponse)
+	if err := json.NewDecoder(resp.Body).Decode(r); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
 // TweetSearch is a full-archive search endpoint returns the complete history of public Tweets matching a search query.
 //
 // This endpoint is only available to those users who have been approved for Academic Research access.

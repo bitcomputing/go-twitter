@@ -83,6 +83,62 @@ func (t TweetRecentSearchOpts) addQuery(req *http.Request) {
 	}
 }
 
+type TweetRecentSearchAsyncResponse struct {
+	ID string `json:"job_id"`
+}
+
+func (*TweetRecentSearchAsyncResponse) Build(statusCode int, headers http.Header, body io.Reader) (*TweetRecentSearchResponse, error) {
+	buffer, err := io.ReadAll(body)
+	if err != nil {
+		return nil, fmt.Errorf("tweet recent search response read: %w", err)
+	}
+
+	rl := rateFromHeader(headers)
+	darl := dailyAppRateFromHeader(headers)
+	durl := dailyUserRateFromHeader(headers)
+
+	if statusCode != http.StatusOK {
+		e := &ErrorResponse{}
+		if err := json.Unmarshal(buffer, e); err != nil {
+			return nil, &HTTPError{
+				StatusCode:         statusCode,
+				RateLimit:          rl,
+				DailyAppRateLimit:  darl,
+				DailyUserRateLimit: durl,
+			}
+		}
+		e.StatusCode = statusCode
+		e.RateLimit = rl
+		e.DailyAppRateLimit = darl
+		e.DailyUserRateLimit = durl
+		return nil, e
+	}
+
+	recentSearch := &TweetRecentSearchResponse{
+		Raw:       &TweetRaw{},
+		Meta:      &TweetRecentSearchMeta{},
+		RateLimit: rl,
+	}
+
+	if err := json.Unmarshal(buffer, recentSearch.Raw); err != nil {
+		return nil, &ResponseDecodeError{
+			Name:      "tweet recent search",
+			Err:       err,
+			RateLimit: rl,
+		}
+	}
+
+	if err := json.Unmarshal(buffer, recentSearch); err != nil {
+		return nil, &ResponseDecodeError{
+			Name:      "tweet recent search",
+			Err:       err,
+			RateLimit: rl,
+		}
+	}
+
+	return recentSearch, nil
+}
+
 // TweetRecentSearchResponse contains all of the information from a tweet recent search
 type TweetRecentSearchResponse struct {
 	Raw       *TweetRaw
